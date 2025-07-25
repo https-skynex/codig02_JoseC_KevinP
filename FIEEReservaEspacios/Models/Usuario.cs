@@ -25,8 +25,8 @@ namespace FIEEReservaEspacios.Models
 
         [Required(ErrorMessage = "El correo es obligatorio")]
         [EmailAddress(ErrorMessage = "Formato de correo inválido")]
-        [RegularExpression(@"^[a-zA-Z0-9._%+-]+@(fiec\.)?espol\.edu\.ec$",
-            ErrorMessage = "Solo correos institucionales ESPOL permitidos")]
+        [RegularExpression(@"^[a-zA-Z0-9._%+-]+@(fiec\.)?epn\.edu\.ec$",
+            ErrorMessage = "Solo correos institucionales EPN permitidos")]
         public string Correo { get; set; }
 
         [Required(ErrorMessage = "La contraseña es obligatoria")]
