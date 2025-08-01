@@ -5,11 +5,15 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Data.Entity;
 using System.Data.Entity.Validation;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Web.Http;
 using System.Web.Http.Description;
+using ClosedXML.Excel;
+using iTextSharp.text;
+using iTextSharp.text.pdf;
 
 namespace SistemaReservasEspaciosFIEE.Controllers
 {
@@ -49,6 +53,18 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             var rolesPermitidos = new[] { "Profesor", "Administrador", "Coordinador" };
             if (!rolesPermitidos.Contains(usuario.Rol))
                 return Content(HttpStatusCode.Forbidden, "Usuario no autorizado. Se requiere rol de Profesor, Administrador o Coordinador");
+
+            return null;
+        }
+
+        private IHttpActionResult CheckAdminOrCoordinatorAuthorization(CredencialesDto credenciales)
+        {
+            var usuario = AuthenticateUser(credenciales);
+            if (usuario == null)
+                return Unauthorized();
+
+            if (usuario.Rol != "Administrador" && usuario.Rol != "Coordinador")
+                return Content(HttpStatusCode.Forbidden, "Usuario no autorizado. Se requiere rol de Administrador o Coordinador");
 
             return null;
         }
@@ -104,6 +120,80 @@ namespace SistemaReservasEspaciosFIEE.Controllers
         #endregion
 
         #region Espacio Endpoints
+
+        [HttpPost]
+        [Route("disponibles")]
+        [ResponseType(typeof(List<EspacioDisponibleDto>))]
+        public IHttpActionResult GetEspaciosDisponibles([FromBody] ConsultaDisponibilidadConCredencialesDto consulta)
+        {
+            try
+            {
+                // Autenticación básica
+                var authResult = CheckProfessorAdminCoordAuthorization(consulta.Credenciales);
+                if (authResult != null)
+                    return authResult;
+
+                // Validar el modelo
+                if (!ModelState.IsValid)
+                    return BadRequest(ModelState);
+
+                // Validar que la hora fin sea mayor a la hora inicio
+                if (consulta.Consulta.HoraFin <= consulta.Consulta.HoraInicio)
+                    return BadRequest("La hora de fin debe ser posterior a la hora de inicio");
+
+                // Obtener todos los espacios
+                var espacios = db.Espacios.ToList();
+
+                // Obtener las reservas aprobadas que coincidan con la fecha
+                var reservas = db.Solicitudes
+                    .Where(s => s.Fecha == consulta.Consulta.Fecha &&
+                               s.Estado == "aprobado")
+                    .ToList();
+
+                // Filtrar espacios disponibles
+                var espaciosDisponibles = new List<EspacioDisponibleDto>();
+
+                foreach (var espacio in espacios)
+                {
+                    // Verificar si hay reservas que se solapen con el horario solicitado
+                    var tieneConflictos = reservas
+                        .Where(r => r.EspacioId == espacio.Id)
+                        .Any(r => r.HoraInicio < consulta.Consulta.HoraFin &&
+                                 r.HoraFin > consulta.Consulta.HoraInicio);
+
+                    if (!tieneConflictos)
+                    {
+                        espaciosDisponibles.Add(new EspacioDisponibleDto
+                        {
+                            Id = espacio.Id,
+                            Nombre = espacio.Nombre,
+                            Codigo = espacio.Codigo,
+                            Tipo = espacio.Tipo,
+                            Disponible = true
+                        });
+                    }
+                }
+
+                if (!espaciosDisponibles.Any())
+                {
+                    return Content(HttpStatusCode.OK, new
+                    {
+                        Mensaje = "No hay espacios disponibles para el horario solicitado",
+                        EspaciosDisponibles = espaciosDisponibles
+                    });
+                }
+
+                return Ok(new
+                {
+                    Mensaje = $"{espaciosDisponibles.Count} espacios disponibles encontrados",
+                    EspaciosDisponibles = espaciosDisponibles
+                });
+            }
+            catch (Exception ex)
+            {
+                return InternalServerError(ex);
+            }
+        }
 
         [HttpPost]
         [Route("espacios/{idEspacio}")]
@@ -422,6 +512,230 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             }
         }
 
+        #region ExamenFinal
+        [HttpPost]
+        [Route("consulta/espacio/{idEspacio}")]
+        public IHttpActionResult ConsultarReservasPorPeriodo(
+    int idEspacio,
+    [FromBody] ConsultaPeriodoDto consulta)
+        {
+            try
+            {
+                // Autenticación básica
+                var usuario = AuthenticateUser(consulta.Credenciales);
+                if (usuario == null)
+                    return Unauthorized();
+
+                var espacio = db.Espacios.Find(idEspacio);
+                if (espacio == null)
+                    return NotFound();
+
+                var solicitudes = db.Solicitudes
+                    .Where(s => s.EspacioId == idEspacio &&
+                                s.Fecha >= consulta.FechaInicio &&
+                                s.Fecha <= consulta.FechaFin)
+                    .Include(s => s.Usuario)
+                    .ToList();
+
+                // Agrupación por periodo
+                IEnumerable<object> agrupado;
+                switch (consulta.TipoPeriodo.ToLower())
+                {
+                    case "dia":
+                        agrupado = solicitudes
+                            .GroupBy(s => s.Fecha.Date)
+                            .OrderBy(g => g.Key)
+                            .Select(g => new {
+                                Fecha = g.Key,
+                                Reservas = g.Select(s => new {
+                                    s.Id,
+                                    s.HoraInicio,
+                                    s.HoraFin,
+                                    s.Estado,
+                                    Usuario = new { s.Usuario.Id, s.Usuario.Nombre, s.Usuario.Apellido }
+                                }).ToList()
+                            });
+                        break;
+                    case "semana":
+                        agrupado = solicitudes
+                            .GroupBy(s => System.Globalization.CultureInfo.CurrentCulture.Calendar.GetWeekOfYear(
+                                s.Fecha, System.Globalization.CalendarWeekRule.FirstDay, DayOfWeek.Monday))
+                            .OrderBy(g => g.Key)
+                            .Select(g => new {
+                                Semana = g.Key,
+                                Reservas = g.Select(s => new {
+                                    s.Id,
+                                    s.Fecha,
+                                    s.HoraInicio,
+                                    s.HoraFin,
+                                    s.Estado,
+                                    Usuario = new { s.Usuario.Id, s.Usuario.Nombre, s.Usuario.Apellido }
+                                }).ToList()
+                            });
+                        break;
+                    case "mes":
+                        agrupado = solicitudes
+                            .GroupBy(s => new { s.Fecha.Year, s.Fecha.Month })
+                            .OrderBy(g => g.Key.Year).ThenBy(g => g.Key.Month)
+                            .Select(g => new {
+                                Mes = $"{g.Key.Month}/{g.Key.Year}",
+                                Reservas = g.Select(s => new {
+                                    s.Id,
+                                    s.Fecha,
+                                    s.HoraInicio,
+                                    s.HoraFin,
+                                    s.Estado,
+                                    Usuario = new { s.Usuario.Id, s.Usuario.Nombre, s.Usuario.Apellido }
+                                }).ToList()
+                            });
+                        break;
+                    default:
+                        return BadRequest("TipoPeriodo inválido. Use 'dia', 'semana' o 'mes'.");
+                }
+
+                return Ok(new
+                {
+                    Espacio = new { espacio.Id, espacio.Nombre },
+                    Periodo = consulta.TipoPeriodo,
+                    ReservasAgrupadas = agrupado
+                });
+            }
+            catch (Exception ex)
+            {
+                return InternalServerError(ex);
+            }
+        }
+
+        [HttpPost]
+        [Route("consulta/avanzada")]
+        public IHttpActionResult ConsultaAvanzada([FromBody] ConsultaAvanzadaDto consulta)
+        {
+            try
+            {
+                var authResult = CheckAdminAuthorization(consulta.Credenciales);
+                if (authResult != null)
+                    return authResult;
+
+                var solicitudes = db.Solicitudes
+                    .Include(s => s.Usuario)
+                    .Include(s => s.Espacio)
+                    .AsQueryable();
+
+                if (consulta.UsuarioId.HasValue)
+                    solicitudes = solicitudes.Where(s => s.UsuarioId == consulta.UsuarioId.Value);
+
+                if (!string.IsNullOrEmpty(consulta.TipoEspacio))
+                    solicitudes = solicitudes.Where(s => s.Espacio.Tipo == consulta.TipoEspacio);
+
+                if (!string.IsNullOrEmpty(consulta.Estado))
+                    solicitudes = solicitudes.Where(s => s.Estado == consulta.Estado);
+
+                var resultado = solicitudes
+                    .OrderBy(s => s.Fecha)
+                    .ThenBy(s => s.HoraInicio)
+                    .Select(s => new
+                    {
+                        s.Id,
+                        s.Fecha,
+                        s.HoraInicio, // Mantenemos como TimeSpan
+                        s.HoraFin,    // Mantenemos como TimeSpan
+                        s.Estado,
+                        s.Descripcion,
+                        Usuario = new { s.Usuario.Id, s.Usuario.Nombre, s.Usuario.Apellido },
+                        Espacio = new { s.Espacio.Id, s.Espacio.Nombre, s.Espacio.Tipo }
+                    })
+                    .ToList();
+
+                // Formateamos las horas después de materializar la consulta
+                var resultadoFormateado = resultado.Select(s => new
+                {
+                    s.Id,
+                    Fecha = s.Fecha.ToString("dd/MM/yyyy"),
+                    HoraInicio = s.HoraInicio.ToString(@"hh\:mm"),
+                    HoraFin = s.HoraFin.ToString(@"hh\:mm"),
+                    s.Estado,
+                    s.Descripcion,
+                    s.Usuario,
+                    s.Espacio
+                }).ToList();
+
+                return Ok(resultadoFormateado);
+            }
+            catch (Exception ex)
+            {
+                return InternalServerError(ex);
+            }
+        }
+
+        [HttpPost]
+        [Route("consulta/exportar")]
+        public IHttpActionResult ExportarConsulta([FromBody] ExportarConsultaDto consulta)
+        {
+            try
+            {
+                var authResult = CheckAdminOrCoordinatorAuthorization(consulta.Credenciales);
+                if (authResult != null)
+                    return authResult;
+
+                var solicitudes = db.Solicitudes
+                    .Include(s => s.Usuario)
+                    .Include(s => s.Espacio)
+                    .AsQueryable();
+
+                if (consulta.UsuarioId.HasValue)
+                    solicitudes = solicitudes.Where(s => s.UsuarioId == consulta.UsuarioId.Value);
+
+                if (!string.IsNullOrEmpty(consulta.TipoEspacio))
+                    solicitudes = solicitudes.Where(s => s.Espacio.Tipo == consulta.TipoEspacio);
+
+                if (!string.IsNullOrEmpty(consulta.Estado))
+                    solicitudes = solicitudes.Where(s => s.Estado == consulta.Estado);
+
+                var resultado = solicitudes
+                .OrderBy(s => s.Fecha)
+                .ToList()
+                .Select(s => new
+                {
+                    s.Id,
+                    s.Fecha,
+                    s.HoraInicio,  // Mantén como TimeSpan
+                    s.HoraFin,     // Mantén como TimeSpan
+                    s.Estado,
+                    s.Descripcion,
+                    Usuario = new { s.Usuario.Id, s.Usuario.Nombre, s.Usuario.Apellido },
+                    Espacio = new { s.Espacio.Id, s.Espacio.Nombre, s.Espacio.Tipo }
+                })
+                .ToList();
+
+                // Export logic
+                
+                if (consulta.Formato.ToLower() == "pdf")
+                {
+                    var fileBytes = ExportToPdf(resultado);
+                    var response = new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new ByteArrayContent(fileBytes)
+                    };
+                    response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/pdf");
+                    response.Content.Headers.ContentDisposition = new System.Net.Http.Headers.ContentDispositionHeaderValue("attachment")
+                    {
+                        FileName = "Reservas.pdf"
+                    };
+                    return ResponseMessage(response);
+                }
+                else
+                {
+                    return BadRequest("Formato no soportado.");
+                }
+            }
+            catch (Exception ex)
+            {
+                return InternalServerError(ex);
+            }
+        }
+
+        #endregion
+
         #endregion
 
         #region Helper Methods
@@ -509,6 +823,7 @@ namespace SistemaReservasEspaciosFIEE.Controllers
                 new
                 {
                     solicitud.Id,
+                    solicitud.UsuarioId,
                     solicitud.Fecha,
                     HoraInicio = solicitud.HoraInicio.ToString(@"hh\:mm"),
                     HoraFin = solicitud.HoraFin.ToString(@"hh\:mm"),
@@ -527,6 +842,122 @@ namespace SistemaReservasEspaciosFIEE.Controllers
                            s.Estado != "rechazado" &&
                            s.HoraInicio < horaFin &&
                            s.HoraFin > horaInicio);
+        }
+
+        private byte[] ExportToExcel(IEnumerable<object> data)
+        {
+            using (var workbook = new XLWorkbook())
+            {
+                var worksheet = workbook.Worksheets.Add("Reservas");
+
+                // Header
+                worksheet.Cell(1, 1).Value = "ID";
+                worksheet.Cell(1, 2).Value = "Fecha";
+                worksheet.Cell(1, 3).Value = "Hora Inicio";
+                worksheet.Cell(1, 4).Value = "Hora Fin";
+                worksheet.Cell(1, 5).Value = "Estado";
+                worksheet.Cell(1, 6).Value = "Espacio";
+                worksheet.Cell(1, 7).Value = "Usuario";
+
+                int row = 2;
+                foreach (var item in data)
+                {
+                    var id = item.GetType().GetProperty("Id")?.GetValue(item, null);
+                    var fecha = ((DateTime)item.GetType().GetProperty("Fecha")?.GetValue(item, null)).ToString("dd/MM/yyyy");
+                    var horaInicio = ((TimeSpan)item.GetType().GetProperty("HoraInicio")?.GetValue(item, null)).ToString(@"hh\:mm");
+                    var horaFin = ((TimeSpan)item.GetType().GetProperty("HoraFin")?.GetValue(item, null)).ToString(@"hh\:mm");
+                    var estado = item.GetType().GetProperty("Estado")?.GetValue(item, null);
+
+                    var espacio = item.GetType().GetProperty("Espacio")?.GetValue(item, null);
+                    var nombreEspacio = espacio?.GetType().GetProperty("Nombre")?.GetValue(espacio, null);
+                    var tipoEspacio = espacio?.GetType().GetProperty("Tipo")?.GetValue(espacio, null);
+
+                    var usuario = item.GetType().GetProperty("Usuario")?.GetValue(item, null);
+                    var nombreUsuario = usuario?.GetType().GetProperty("Nombre")?.GetValue(usuario, null);
+                    var apellidoUsuario = usuario?.GetType().GetProperty("Apellido")?.GetValue(usuario, null);
+
+                    worksheet.Cell(row, 1).Value = XLCellValue.FromObject(id);
+                    worksheet.Cell(row, 2).Value = fecha;
+                    worksheet.Cell(row, 3).Value = horaInicio;
+                    worksheet.Cell(row, 4).Value = horaFin;
+                    worksheet.Cell(row, 5).Value = XLCellValue.FromObject(estado);
+                    worksheet.Cell(row, 6).Value = $"{nombreEspacio} ({tipoEspacio})";
+                    worksheet.Cell(row, 7).Value = $"{nombreUsuario} {apellidoUsuario}";
+
+                    row++;
+                }
+
+                worksheet.Columns().AdjustToContents();
+
+                using (var stream = new MemoryStream())
+                {
+                    workbook.SaveAs(stream);
+                    return stream.ToArray();
+                }
+            }
+        }
+
+        private byte[] ExportToPdf(IEnumerable<object> data)
+        {
+            using (var stream = new MemoryStream())
+            {
+                var doc = new Document(PageSize.A4, 25, 25, 30, 30);
+                var writer = PdfWriter.GetInstance(doc, stream);
+                doc.Open();
+
+                // Title
+                var titleFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 16);
+                var normalFont = FontFactory.GetFont(FontFactory.HELVETICA, 12);
+
+                doc.Add(new Paragraph("Reporte de Reservas", titleFont));
+                doc.Add(new Paragraph(" ")); // Empty line
+
+                // Table
+                PdfPTable table = new PdfPTable(7) { WidthPercentage = 100 };
+                table.SetWidths(new float[] { 1f, 2f, 2f, 2f, 2f, 3f, 2f });
+
+                // Header
+                table.AddCell(new PdfPCell(new Phrase("ID", normalFont)));
+                table.AddCell(new PdfPCell(new Phrase("Fecha", normalFont)));
+                table.AddCell(new PdfPCell(new Phrase("Hora Inicio", normalFont)));
+                table.AddCell(new PdfPCell(new Phrase("Hora Fin", normalFont)));
+                table.AddCell(new PdfPCell(new Phrase("Estado", normalFont)));
+                table.AddCell(new PdfPCell(new Phrase("Espacio", normalFont)));
+                table.AddCell(new PdfPCell(new Phrase("Usuario", normalFont)));
+
+                foreach (var item in data)
+                {
+                    var id = item.GetType().GetProperty("Id")?.GetValue(item, null)?.ToString();
+                    var fecha = ((DateTime)item.GetType().GetProperty("Fecha")?.GetValue(item, null)).ToString("dd/MM/yyyy");
+
+                    // Formatea los TimeSpan correctamente
+                    var horaInicio = ((TimeSpan)item.GetType().GetProperty("HoraInicio")?.GetValue(item, null)).ToString(@"hh\:mm");
+                    var horaFin = ((TimeSpan)item.GetType().GetProperty("HoraFin")?.GetValue(item, null)).ToString(@"hh\:mm");
+
+                    var estado = item.GetType().GetProperty("Estado")?.GetValue(item, null)?.ToString();
+
+                    var espacio = item.GetType().GetProperty("Espacio")?.GetValue(item, null);
+                    var nombreEspacio = espacio?.GetType().GetProperty("Nombre")?.GetValue(espacio, null)?.ToString();
+                    var tipoEspacio = espacio?.GetType().GetProperty("Tipo")?.GetValue(espacio, null)?.ToString();
+
+                    var usuario = item.GetType().GetProperty("Usuario")?.GetValue(item, null);
+                    var nombreUsuario = usuario?.GetType().GetProperty("Nombre")?.GetValue(usuario, null)?.ToString();
+                    var apellidoUsuario = usuario?.GetType().GetProperty("Apellido")?.GetValue(usuario, null)?.ToString();
+
+                    table.AddCell(new PdfPCell(new Phrase(id ?? "", normalFont)));
+                    table.AddCell(new PdfPCell(new Phrase(fecha ?? "", normalFont)));
+                    table.AddCell(new PdfPCell(new Phrase(horaInicio ?? "", normalFont)));
+                    table.AddCell(new PdfPCell(new Phrase(horaFin ?? "", normalFont)));
+                    table.AddCell(new PdfPCell(new Phrase(estado ?? "", normalFont)));
+                    table.AddCell(new PdfPCell(new Phrase($"{nombreEspacio} ({tipoEspacio})" ?? "", normalFont)));
+                    table.AddCell(new PdfPCell(new Phrase($"{nombreUsuario} {apellidoUsuario}" ?? "", normalFont)));
+                }
+
+                doc.Add(table);
+                doc.Close();
+
+                return stream.ToArray();
+            }
         }
 
         #endregion
@@ -596,4 +1027,69 @@ namespace SistemaReservasEspaciosFIEE.Controllers
         [Required]
         public ActualizacionEstadoDto EstadoDto { get; set; }
     }
+
+    public class ConsultaDisponibilidadDto
+    {
+        [Required(ErrorMessage = "La fecha es obligatoria")]
+        [DataType(DataType.Date)]
+        [CustomValidation(typeof(Solicitud), "ValidarFechaFutura")]
+        public DateTime Fecha { get; set; }
+
+        [Required(ErrorMessage = "Hora de inicio es obligatoria")]
+        [DataType(DataType.Time)]
+        public TimeSpan HoraInicio { get; set; }
+
+        [Required(ErrorMessage = "Hora de fin es obligatoria")]
+        [DataType(DataType.Time)]
+        public TimeSpan HoraFin { get; set; }
+    }
+
+    public class ConsultaDisponibilidadConCredencialesDto
+    {
+        [Required]
+        public CredencialesDto Credenciales { get; set; }
+
+        [Required]
+        public ConsultaDisponibilidadDto Consulta { get; set; }
+    }
+
+    public class EspacioDisponibleDto
+    {
+        public int Id { get; set; }
+        public string Nombre { get; set; }
+        public string Codigo { get; set; }
+        public string Tipo { get; set; }
+        public bool Disponible { get; set; } = true;
+    }
+    #region ExamenFinalDTO
+    public class ConsultaPeriodoDto
+    {
+        [Required]
+        public CredencialesDto Credenciales { get; set; }
+        [Required]
+        public DateTime FechaInicio { get; set; }
+        [Required]
+        public DateTime FechaFin { get; set; }
+        [Required]
+        [RegularExpression("^(dia|semana|mes)$", ErrorMessage = "TipoPeriodo debe ser 'dia', 'semana' o 'mes'")]
+        public string TipoPeriodo { get; set; }
+    }
+    public class ConsultaAvanzadaDto
+    {
+        [Required]
+        public CredencialesDto Credenciales { get; set; }
+        public int? UsuarioId { get; set; }
+        public string TipoEspacio { get; set; }
+        public string Estado { get; set; }
+    }
+
+    public class ExportarConsultaDto : ConsultaAvanzadaDto
+    {
+        [Required]
+        [RegularExpression("^(pdf)$", ErrorMessage = "Formato debe ser 'pdf'")]
+        public string Formato { get; set; }
+        
+    }
+
+    #endregion
 }

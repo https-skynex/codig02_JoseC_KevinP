@@ -27,7 +27,7 @@
                     {
                         Nombre = "Admin",
                         Apellido = "Sistema",
-                        Correo = "admin@espol.edu.ec",
+                        Correo = "admin@epn.edu.ec",
                         Contrasena = "Admin123!",
                         Rol = "Administrador"
                     },
@@ -35,7 +35,7 @@
                     {
                         Nombre = "Juan",
                         Apellido = "Pérez",
-                        Correo = "jperez@espol.edu.ec",
+                        Correo = "jperez@epn.edu.ec",
                         Contrasena = "Prof123!",
                         Rol = "Profesor"
                     }
@@ -89,8 +89,8 @@
                 context.SaveChanges();
 
                 // 3. Obtener IDs reales
-                var admin = context.Usuarios.First(u => u.Correo == "admin@espol.edu.ec");
-                var profesor = context.Usuarios.First(u => u.Correo == "jperez@espol.edu.ec");
+                var admin = context.Usuarios.First(u => u.Correo == "admin@epn.edu.ec");
+                var profesor = context.Usuarios.First(u => u.Correo == "jperez@epn.edu.ec");
                 var aula = context.Espacios.First(e => e.Codigo == "E01/P1/E101");
                 var laboratorio = context.Espacios.First(e => e.Codigo == "E17/P3/E201");
 
