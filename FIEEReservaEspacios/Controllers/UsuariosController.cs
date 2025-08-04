@@ -1,4 +1,5 @@
 ﻿using FIEEReservaEspacios.DAL;
+using FIEEReservaEspacios.DAL;
 using FIEEReservaEspacios.Models;
 using System;
 using System.Collections.Generic;
@@ -16,7 +17,10 @@ namespace SistemaReservasEspaciosFIEE.Controllers
     {
         private readonly ReservaEspaciosContext db = new ReservaEspaciosContext();
 
-        // GET FIEE/usuarios
+        /// <summary>
+        /// Obtiene todos los usuarios registrados (sin información sensible como contraseñas)
+        /// </summary>
+        /// <returns>Lista de usuarios con información básica</returns>
         [HttpGet]
         [Route("")]
         public IHttpActionResult ObtenerTodosUsuarios()
@@ -41,7 +45,11 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             }
         }
 
-        // GET FIEE/usuarios/5
+        /// <summary>
+        /// Obtiene un usuario específico por su ID
+        /// </summary>
+        /// <param name="id">ID del usuario a buscar</param>
+        /// <returns>Información del usuario o NotFound si no existe</returns>
         [HttpGet]
         [Route("{id:int}")]
         public IHttpActionResult ObtenerUsuarioPorId(int id)
@@ -72,7 +80,11 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             }
         }
 
-        // POST FIEE/usuarios
+        /// <summary>
+        /// Crea un nuevo usuario en el sistema
+        /// </summary>
+        /// <param name="usuarioDto">Datos del nuevo usuario</param>
+        /// <returns>Usuario creado (sin contraseña) o error de validación</returns>
         [HttpPost]
         [Route("")]
         public IHttpActionResult CrearUsuario([FromBody] UsuarioCreacionDto usuarioDto)
@@ -84,6 +96,7 @@ namespace SistemaReservasEspaciosFIEE.Controllers
                     return BadRequest(ModelState);
                 }
 
+                // Validar que el correo no esté registrado
                 if (db.Usuarios.Any(u => u.Correo == usuarioDto.Correo))
                 {
                     return Content(HttpStatusCode.Conflict, "El correo electrónico ya está registrado");
@@ -101,7 +114,7 @@ namespace SistemaReservasEspaciosFIEE.Controllers
                 db.Usuarios.Add(usuario);
                 db.SaveChanges();
 
-                // Respuesta sin contraseña
+                // Respuesta sin contraseña por seguridad
                 var respuesta = new
                 {
                     usuario.Id,
@@ -122,7 +135,12 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             }
         }
 
-        // PUT FIEE/usuarios/5
+        /// <summary>
+        /// Actualiza la información de un usuario existente
+        /// </summary>
+        /// <param name="id">ID del usuario a actualizar</param>
+        /// <param name="usuarioDto">Nuevos datos del usuario</param>
+        /// <returns>NoContent si éxito, o error si falla</returns>
         [HttpPut]
         [Route("{id:int}")]
         public IHttpActionResult ActualizarUsuario(int id, [FromBody] UsuarioActualizacionDto usuarioDto)
@@ -140,6 +158,7 @@ namespace SistemaReservasEspaciosFIEE.Controllers
                     return NotFound();
                 }
 
+                // Validar que el correo no esté siendo usado por otro usuario
                 if (db.Usuarios.Any(u => u.Id != id && u.Correo == usuarioDto.Correo))
                 {
                     return Content(HttpStatusCode.Conflict, "El correo electrónico ya está registrado");
@@ -151,7 +170,7 @@ namespace SistemaReservasEspaciosFIEE.Controllers
                 usuarioExistente.Correo = usuarioDto.Correo;
                 usuarioExistente.Rol = usuarioDto.Rol;
 
-                // Solo actualizar contraseña si se proporcionó una nueva
+                // Actualizar contraseña solo si se proporcionó una nueva
                 if (!string.IsNullOrEmpty(usuarioDto.Contrasena))
                 {
                     usuarioExistente.Contrasena = usuarioDto.Contrasena;
@@ -168,7 +187,11 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             }
         }
 
-        // DELETE FIEE/usuarios/5
+        /// <summary>
+        /// Elimina un usuario del sistema
+        /// </summary>
+        /// <param name = "id">ID del usuario a eliminar</param>
+        /// <returns>Mensaje de confirmación o error</returns>
         [HttpDelete]
         [Route("{id:int}")]
         public IHttpActionResult EliminarUsuario(int id)
@@ -196,6 +219,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             }
         }
 
+        /// <summary>
+        /// DTO para creación de usuarios con validaciones
+        /// </summary>
         public class UsuarioCreacionDto
         {
             [Required]
@@ -218,6 +244,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             public string Rol { get; set; }
         }
 
+        /// <summary>
+        /// DTO para actualización de usuarios con validaciones
+        /// </summary>
         public class UsuarioActualizacionDto
         {
             [StringLength(50)]

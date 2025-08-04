@@ -24,6 +24,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
 
         #region Helper Methods for Authentication
 
+        /// <summary>
+        /// Autentica un usuario basado en sus credenciales
+        /// </summary>
         private Usuario AuthenticateUser(CredencialesDto credenciales)
         {
             if (credenciales == null || string.IsNullOrEmpty(credenciales.Correo) || string.IsNullOrEmpty(credenciales.Password))
@@ -33,6 +36,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             return usuario;
         }
 
+        /// <summary>
+        /// Verifica si el usuario es administrador
+        /// </summary>
         private IHttpActionResult CheckAdminAuthorization(CredencialesDto credenciales)
         {
             var usuario = AuthenticateUser(credenciales);
@@ -44,6 +50,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             return null;
         }
 
+        /// <summary>
+        /// Verifica si el usuario es profesor, admin o coordinador
+        /// </summary>
         private IHttpActionResult CheckProfessorAdminCoordAuthorization(CredencialesDto credenciales)
         {
             var usuario = AuthenticateUser(credenciales);
@@ -57,6 +66,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             return null;
         }
 
+        /// <summary>
+        /// Verifica si el usuario es admin o coordinador
+        /// </summary>
         private IHttpActionResult CheckAdminOrCoordinatorAuthorization(CredencialesDto credenciales)
         {
             var usuario = AuthenticateUser(credenciales);
@@ -73,6 +85,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
 
         #region General Endpoints
 
+        /// <summary>
+        /// Obtiene todas las solicitudes de reserva (solo para administradores)
+        /// </summary>
         [HttpPost]
         [Route("")]
         public IHttpActionResult GetAllSolicitudes([FromBody] CredencialesDto credenciales)
@@ -84,30 +99,30 @@ namespace SistemaReservasEspaciosFIEE.Controllers
                     return authResult;
 
                 var solicitudes = db.Solicitudes
-    .Include(s => s.Usuario)
-    .Include(s => s.Espacio)
-    .Select(s => new {
-        s.Id,
-        s.Fecha,
-        s.HoraInicio,
-        s.HoraFin,
-        s.Estado,
-        s.Descripcion,
-        Usuario = new { s.Usuario.Id, s.Usuario.Nombre, s.Usuario.Apellido },
-        Espacio = new { s.Espacio.Id, s.Espacio.Nombre }
-    })
-    .AsEnumerable()
-    .Select(s => new {
-        s.Id,
-        s.Fecha,
-        HoraInicio = s.HoraInicio.ToString(@"hh\:mm"),
-        HoraFin = s.HoraFin.ToString(@"hh\:mm"),
-        s.Estado,
-        s.Descripcion,
-        s.Usuario,
-        s.Espacio
-    })
-    .ToList();      
+                    .Include(s => s.Usuario)
+                    .Include(s => s.Espacio)
+                    .Select(s => new {
+                        s.Id,
+                        s.Fecha,
+                        s.HoraInicio,
+                        s.HoraFin,
+                        s.Estado,
+                        s.Descripcion,
+                        Usuario = new { s.Usuario.Id, s.Usuario.Nombre, s.Usuario.Apellido },
+                        Espacio = new { s.Espacio.Id, s.Espacio.Nombre }
+                    })
+                    .AsEnumerable()
+                    .Select(s => new {
+                        s.Id,
+                        s.Fecha,
+                        HoraInicio = s.HoraInicio.ToString(@"hh\:mm"),
+                        HoraFin = s.HoraFin.ToString(@"hh\:mm"),
+                        s.Estado,
+                        s.Descripcion,
+                        s.Usuario,
+                        s.Espacio
+                    })
+                    .ToList();
 
                 return Ok(solicitudes);
             }
@@ -121,6 +136,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
 
         #region Espacio Endpoints
 
+        /// <summary>
+        /// Obtiene los espacios disponibles para un horario específico
+        /// </summary>
         [HttpPost]
         [Route("disponibles")]
         [ResponseType(typeof(List<EspacioDisponibleDto>))]
@@ -195,6 +213,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             }
         }
 
+        /// <summary>
+        /// Obtiene todas las solicitudes para un espacio específico
+        /// </summary>
         [HttpPost]
         [Route("espacios/{idEspacio}")]
         public IHttpActionResult GetSolicitudesPorEspacio(int idEspacio, [FromBody] CredencialesDto credenciales)
@@ -245,6 +266,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             }
         }
 
+        /// <summary>
+        /// Obtiene una solicitud específica para un espacio
+        /// </summary>
         [HttpPost]
         [Route("espacios/{idEspacio}/{idSolicitud}")]
         public IHttpActionResult GetSolicitudPorEspacio(int idEspacio, int idSolicitud, [FromBody] CredencialesDto credenciales)
@@ -302,6 +326,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             }
         }
 
+        /// <summary>
+        /// Crea una nueva solicitud de reserva para un espacio
+        /// </summary>
         [HttpPost]
         [Route("espacios/crear/{idEspacio}")]
         public IHttpActionResult CrearSolicitudEnEspacio(int idEspacio, [FromBody] SolicitudConCredencialesDto solicitudConCredenciales)
@@ -325,6 +352,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             }
         }
 
+        /// <summary>
+        /// Actualiza el estado de una solicitud para un espacio (solo admin)
+        /// </summary>
         [HttpPut]
         [Route("espacios/{idEspacio}/{idSolicitud}")]
         public IHttpActionResult ActualizarSolicitudEnEspacio(int idEspacio, int idSolicitud, [FromBody] ActualizacionEstadoConCredencialesDto estadoConCredenciales)
@@ -357,6 +387,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             }
         }
 
+        /// <summary>
+        /// Elimina una solicitud para un espacio
+        /// </summary>
         [HttpPost]
         [Route("espacios/eliminar/{idEspacio}/{idSolicitud}")]
         public IHttpActionResult EliminarSolicitudEnEspacio(int idEspacio, int idSolicitud, [FromBody] CredencialesDto credenciales)
@@ -394,6 +427,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
 
         #region Usuario Endpoints
 
+        /// <summary>
+        /// Obtiene todas las solicitudes de un usuario específico
+        /// </summary>
         [HttpPost]
         [Route("usuario/{idUsuario}")]
         public IHttpActionResult GetSolicitudesPorUsuario(int idUsuario, [FromBody] CredencialesDto credenciales)
@@ -449,6 +485,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             }
         }
 
+        /// <summary>
+        /// Actualiza una solicitud específica de un usuario
+        /// </summary>
         [HttpPut]
         [Route("usuario/{idUsuario}/{idSolicitud}")]
         public IHttpActionResult ActualizarSolicitudDeUsuario(int idUsuario, int idSolicitud, [FromBody] ActualizacionSolicitudConCredencialesDto solicitudConCredenciales)
@@ -479,6 +518,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             }
         }
 
+        /// <summary>
+        /// Elimina una solicitud específica de un usuario
+        /// </summary>
         [HttpPost]
         [Route("usuario/eliminar/{idUsuario}/{idSolicitud}")]
         public IHttpActionResult EliminarSolicitudDeUsuario(int idUsuario, int idSolicitud, [FromBody] CredencialesDto credenciales)
@@ -513,11 +555,14 @@ namespace SistemaReservasEspaciosFIEE.Controllers
         }
 
         #region ExamenFinal
+        /// <summary>
+        /// Consulta reservas agrupadas por periodo (día, semana o mes)
+        /// </summary>
         [HttpPost]
         [Route("consulta/espacio/{idEspacio}")]
         public IHttpActionResult ConsultarReservasPorPeriodo(
-    int idEspacio,
-    [FromBody] ConsultaPeriodoDto consulta)
+            int idEspacio,
+            [FromBody] ConsultaPeriodoDto consulta)
         {
             try
             {
@@ -606,6 +651,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             }
         }
 
+        /// <summary>
+        /// Consulta avanzada con filtros por usuario, tipo de espacio y estado
+        /// </summary>
         [HttpPost]
         [Route("consulta/avanzada")]
         public IHttpActionResult ConsultaAvanzada([FromBody] ConsultaAvanzadaDto consulta)
@@ -667,6 +715,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             }
         }
 
+        /// <summary>
+        /// Exporta los resultados de una consulta a PDF
+        /// </summary>
         [HttpPost]
         [Route("consulta/exportar")]
         public IHttpActionResult ExportarConsulta([FromBody] ExportarConsultaDto consulta)
@@ -708,7 +759,7 @@ namespace SistemaReservasEspaciosFIEE.Controllers
                 .ToList();
 
                 // Export logic
-                
+
                 if (consulta.Formato.ToLower() == "pdf")
                 {
                     var fileBytes = ExportToPdf(resultado);
@@ -740,6 +791,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
 
         #region Helper Methods
 
+        /// <summary>
+        /// Rechaza automáticamente solicitudes que entran en conflicto con una aprobada
+        /// </summary>
         private void RechazarSolicitudesConflictivas(Solicitud solicitudAprobada)
         {
             var solicitudesConflictivas = db.Solicitudes
@@ -759,6 +813,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             db.SaveChanges();
         }
 
+        /// <summary>
+        /// Actualiza el estado de una solicitud (aprobado/rechazado)
+        /// </summary>
         private IHttpActionResult ActualizarEstadoSolicitud(Solicitud solicitud, ActualizacionEstadoDto estadoDto)
         {
             if (!ModelState.IsValid)
@@ -778,6 +835,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             });
         }
 
+        /// <summary>
+        /// Crea una nueva solicitud de reserva con validaciones
+        /// </summary>
         private IHttpActionResult CrearSolicitud(int idEspacio, SolicitudCreacionDto solicitudDto)
         {
             if (!ModelState.IsValid)
@@ -834,6 +894,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
                 });
         }
 
+        /// <summary>
+        /// Verifica si existe conflicto de horario para un espacio en una fecha y hora específica
+        /// </summary>
         private bool ExisteConflictoHorario(int espacioId, DateTime fecha, TimeSpan horaInicio, TimeSpan horaFin)
         {
             return db.Solicitudes
@@ -844,6 +907,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
                            s.HoraFin > horaInicio);
         }
 
+        /// <summary>
+        /// Exporta datos a formato Excel (no implementado completamente)
+        /// </summary>
         private byte[] ExportToExcel(IEnumerable<object> data)
         {
             using (var workbook = new XLWorkbook())
@@ -897,6 +963,9 @@ namespace SistemaReservasEspaciosFIEE.Controllers
             }
         }
 
+        /// <summary>
+        /// Exporta datos a formato PDF
+        /// </summary>
         private byte[] ExportToPdf(IEnumerable<object> data)
         {
             using (var stream = new MemoryStream())
@@ -1088,7 +1157,7 @@ namespace SistemaReservasEspaciosFIEE.Controllers
         [Required]
         [RegularExpression("^(pdf)$", ErrorMessage = "Formato debe ser 'pdf'")]
         public string Formato { get; set; }
-        
+
     }
 
     #endregion

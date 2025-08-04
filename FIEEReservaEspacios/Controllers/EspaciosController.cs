@@ -10,14 +10,21 @@ using System.Web.Http;
 
 namespace FIEEReservaEspacios.Controllers
 {
+    /// <summary>
+    /// Controlador API para la gestión de espacios físicos
+    /// </summary>
     [RoutePrefix("FIEE/espacios")]
     public class EspaciosController : ApiController
     {
         private readonly ReservaEspaciosContext db = new ReservaEspaciosContext();
 
-        // POST FIEE/espacios
+        /// <summary>
+        /// Crea un nuevo espacio en el sistema
+        /// </summary>
+        /// <param name="espacio">Datos del espacio a crear</param>
+        /// <returns>Respuesta HTTP con el espacio creado o mensaje de error</returns>
         [HttpPost]
-        [Route("")] // Matches the prefix
+        [Route("")]
         public IHttpActionResult CrearEspacio([FromBody] Espacio espacio)
         {
             try
@@ -25,13 +32,14 @@ namespace FIEEReservaEspacios.Controllers
                 if (!ModelState.IsValid)
                     return BadRequest(ModelState);
 
+                // Verificar que el código del espacio no esté duplicado
                 if (db.Espacios.Any(e => e.Codigo == espacio.Codigo))
                     return Content(HttpStatusCode.Conflict, "El código ya está registrado");
 
                 db.Espacios.Add(espacio);
                 db.SaveChanges();
 
-                // Return 201 Created with location header
+                // Retorna respuesta 201 Created con URL del nuevo recurso
                 return Created(
                     new Uri($"{Request.RequestUri}/{espacio.Id}"),
                     new
@@ -40,7 +48,7 @@ namespace FIEEReservaEspacios.Controllers
                         espacio.Nombre,
                         espacio.Codigo,
                         espacio.Tipo
-                        // Exclude any sensitive/non-necessary fields
+                        // No incluir información sensible o innecesaria
                     });
             }
             catch (Exception ex)
@@ -49,7 +57,10 @@ namespace FIEEReservaEspacios.Controllers
             }
         }
 
-        // GET FIEE/espacios
+        /// <summary>
+        /// Obtiene todos los espacios registrados en el sistema
+        /// </summary>
+        /// <returns>Lista de espacios con información básica</returns>
         [HttpGet]
         [Route("")]
         public IHttpActionResult ObtenerTodosEspacios()
@@ -75,7 +86,11 @@ namespace FIEEReservaEspacios.Controllers
             }
         }
 
-        // GET FIEE/espacios/5
+        /// <summary>
+        /// Obtiene un espacio específico por su ID
+        /// </summary>
+        /// <param name="id">ID del espacio a buscar</param>
+        /// <returns>Información del espacio o NotFound si no existe</returns>
         [HttpGet]
         [Route("{id:int}")]
         public IHttpActionResult ObtenerEspacioPorId(int id)
@@ -105,7 +120,12 @@ namespace FIEEReservaEspacios.Controllers
             }
         }
 
-        // PUT FIEE/espacios/5
+        /// <summary>
+        /// Actualiza la información de un espacio existente
+        /// </summary>
+        /// <param name="id">ID del espacio a actualizar</param>
+        /// <param name="espacio">Nuevos datos del espacio</param>
+        /// <returns>NoContent si éxito, o error si falla</returns>
         [HttpPut]
         [Route("{id:int}")]
         public IHttpActionResult ActualizarEspacio(int id, [FromBody] Espacio espacio)
@@ -115,6 +135,7 @@ namespace FIEEReservaEspacios.Controllers
                 if (!ModelState.IsValid)
                     return BadRequest(ModelState);
 
+                // Validar consistencia de IDs
                 if (id != espacio.Id)
                     return BadRequest("ID inconsistente");
 
@@ -122,10 +143,11 @@ namespace FIEEReservaEspacios.Controllers
                 if (existente == null)
                     return NotFound();
 
+                // Validar que el código no esté siendo usado por otro espacio
                 if (db.Espacios.Any(e => e.Id != id && e.Codigo == espacio.Codigo))
                     return Content(HttpStatusCode.Conflict, "El código ya está registrado");
 
-                // Update properties
+                // Actualizar propiedades permitidas
                 existente.Nombre = espacio.Nombre;
                 existente.Codigo = espacio.Codigo;
                 existente.Tipo = espacio.Tipo;
@@ -143,7 +165,11 @@ namespace FIEEReservaEspacios.Controllers
             }
         }
 
-        // DELETE FIEE/espacios/5
+        /// <summary>
+        /// Elimina un espacio del sistema
+        /// </summary>
+        /// <param name="id">ID del espacio a eliminar</param>
+        /// <returns>Mensaje de confirmación o error</returns>
         [HttpDelete]
         [Route("{id:int}")]
         public IHttpActionResult EliminarEspacio(int id)
