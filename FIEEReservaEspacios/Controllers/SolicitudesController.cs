@@ -796,21 +796,52 @@ namespace SistemaReservasEspaciosFIEE.Controllers
         /// </summary>
         private void RechazarSolicitudesConflictivas(Solicitud solicitudAprobada)
         {
-            var solicitudesConflictivas = db.Solicitudes
-                .Where(s => s.EspacioId == solicitudAprobada.EspacioId &&
-                           s.Fecha == solicitudAprobada.Fecha &&
-                           s.Id != solicitudAprobada.Id &&
-                           s.Estado == "pendiente" &&
-                           s.HoraInicio < solicitudAprobada.HoraFin &&
-                           s.HoraFin > solicitudAprobada.HoraInicio)
-                .ToList();
-
-            foreach (var solicitud in solicitudesConflictivas)
+            try
             {
-                solicitud.Estado = "rechazado";
-            }
+                var solicitudesConflictivas = db.Solicitudes
+                    .Where(s => s.EspacioId == solicitudAprobada.EspacioId &&
+                               s.Fecha == solicitudAprobada.Fecha &&
+                               s.Id != solicitudAprobada.Id &&
+                               s.Estado == "pendiente" &&
+                               s.HoraInicio < solicitudAprobada.HoraFin &&
+                               s.HoraFin > solicitudAprobada.HoraInicio)
+                    .ToList();
 
-            db.SaveChanges();
+                foreach (var solicitud in solicitudesConflictivas)
+                {
+                    solicitud.Estado = "rechazado";
+                    solicitud.Descripcion = $"Rechazada automáticamente por conflicto con solicitud #{solicitudAprobada.Id}";
+
+                    // Validate the entity before saving
+                    var validationContext = new ValidationContext(solicitud);
+                    var validationResults = new List<ValidationResult>();
+                    if (!Validator.TryValidateObject(solicitud, validationContext, validationResults, true))
+                    {
+                        // Log validation errors or handle them appropriately
+                        var errorMessages = validationResults.Select(r => r.ErrorMessage);
+                        // You might want to log these errors
+                        System.Diagnostics.Debug.WriteLine($"Validation errors: {string.Join("; ", errorMessages)}");
+                    }
+                }
+
+                db.SaveChanges();
+            }
+            catch (DbEntityValidationException ex)
+            {
+                // Get the full validation error messages
+                var errorMessages = ex.EntityValidationErrors
+                    .SelectMany(x => x.ValidationErrors)
+                    .Select(x => $"{x.PropertyName}: {x.ErrorMessage}");
+
+                // Log these errors or handle them appropriately
+                System.Diagnostics.Debug.WriteLine($"Entity validation failed: {string.Join("; ", errorMessages)}");
+                throw; // Re-throw the exception if you want it to bubble up
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in RechazarSolicitudesConflictivas: {ex.Message}");
+                throw;
+            }
         }
 
         /// <summary>
@@ -818,21 +849,46 @@ namespace SistemaReservasEspaciosFIEE.Controllers
         /// </summary>
         private IHttpActionResult ActualizarEstadoSolicitud(Solicitud solicitud, ActualizacionEstadoDto estadoDto)
         {
+            if (solicitud == null)
+                return BadRequest("Solicitud no puede ser nula");
+
+            if (estadoDto == null)
+                return BadRequest("Datos de actualización no pueden ser nulos");
+
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            if (!new[] { "aprobado", "rechazado" }.Contains(estadoDto.Estado.ToLower()))
+            var nuevoEstado = estadoDto.Estado.ToLower();
+            if (!new[] { "aprobado", "rechazado" }.Contains(nuevoEstado))
                 return BadRequest("Estado inválido. Use 'aprobado' o 'rechazado'");
 
-            solicitud.Estado = estadoDto.Estado.ToLower();
-            db.SaveChanges();
+            if (solicitud.Estado == nuevoEstado)
+                return Ok(new { mensaje = "La solicitud ya tiene este estado", solicitud.Id, solicitud.Estado });
 
-            return Ok(new
+            try
             {
-                mensaje = "Estado actualizado correctamente",
-                solicitud.Id,
-                solicitud.Estado
-            });
+                solicitud.Estado = nuevoEstado;
+                db.SaveChanges();
+
+                return Ok(new
+                {
+                    mensaje = "Estado actualizado correctamente",
+                    solicitud.Id,
+                    solicitud.Estado
+                });
+            }
+            catch (DbEntityValidationException ex)
+            {
+                var errorMessages = ex.EntityValidationErrors
+                    .SelectMany(x => x.ValidationErrors)
+                    .Select(x => x.ErrorMessage);
+
+                return BadRequest(string.Join("; ", errorMessages));
+            }
+            catch (Exception ex)
+            {
+                return InternalServerError(ex);
+            }
         }
 
         /// <summary>
